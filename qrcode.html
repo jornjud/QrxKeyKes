@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Air-Gapped QR Data Transfer</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans min-h-screen p-6">
+
+    <div class="max-w-5xl mx-auto">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-emerald-400 mb-2">🔄 Air-Gapped Optical Transfer</h1>
+            <p class="text-slate-400 text-sm">รับ-ส่งไฟล์ผ่านหน้าจอและกล้องโดยไม่ต้องต่อเน็ตเวิร์ก</p>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            
+            <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                <h2 class="text-xl font-semibold mb-4 text-amber-400 flex items-center gap-2">
+                    <span>📤</span> ฝั่งส่งข้อมูล (Sender)
+                </h2>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-slate-300 mb-2">เลือกไฟล์ที่ต้องการส่ง (แนะนำขนาด < 10 KB)</label>
+                    <input type="file" id="fileInput" class="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-amber-500 file:text-slate-900 hover:file:bg-amber-400 cursor-pointer">
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-slate-300 mb-2">ความเร็วในการเปลี่ยนรูป (มิลลิวินาทีต่อเฟรม)</label>
+                    <input type="number" id="speedInput" value="300" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-center text-amber-400 font-mono">
+                </div>
+
+                <div class="flex gap-2 mb-6">
+                    <button id="startSendBtn" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 px-4 rounded-xl transition">เริ่มส่งข้อมูล</button>
+                    <button id="stopSendBtn" class="bg-rose-600 hover:bg-rose-500 text-white font-bold py-2.5 px-4 rounded-xl transition hidden">หยุด</button>
+                </div>
+
+                <div class="flex flex-col items-center justify-center bg-white p-6 rounded-xl min-h-[300px]">
+                    <div id="qrcode"></div>
+                    <div id="sendProgress" class="text-slate-900 font-mono text-sm mt-4 font-bold"></div>
+                </div>
+            </div>
+
+            <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                <h2 class="text-xl font-semibold mb-4 text-cyan-400 flex items-center gap-2">
+                    <span>📥</span> ฝั่งรับข้อมูล (Receiver)
+                </h2>
+
+                <div class="flex gap-2 mb-4">
+                    <button id="startScanBtn" class="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2.5 px-4 rounded-xl transition">เปิดกล้องรับข้อมูล</button>
+                    <button id="stopScanBtn" class="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-bold py-2.5 px-4 rounded-xl transition hidden">ปิดกล้อง</button>
+                </div>
+
+                <div class="relative bg-slate-900 rounded-xl overflow-hidden border border-slate-700 aspect-video mb-4 flex items-center justify-center">
+                    <div id="reader" class="w-full h-full"></div>
+                </div>
+
+                <div class="bg-slate-900 p-4 rounded-xl border border-slate-700 font-mono text-sm">
+                    <div class="flex justify-between mb-2">
+                        <span>สถานะ:</span>
+                        <span id="scanStatus" class="text-rose-400 font-bold">ปิดอยู่</span>
+                    </div>
+                    <div class="w-full bg-slate-700 rounded-full h-2.5 mb-4">
+                        <div id="progressBar" class="bg-cyan-500 h-2.5 rounded-full" style="width: 0%"></div>
+                    </div>
+                    <div id="chunksInfo" class="text-slate-400 text-xs break-all max-h-[100px] overflow-y-auto">
+                        ยังไม่มีข้อมูลเปิดรับ...
+                    </div>
+                </div>
+
+                <div id="downloadArea" class="mt-4 hidden">
+                    <a id="downloadLink" class="block text-center bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3 px-4 rounded-xl transition shadow-lg">
+                        💾 ดาวน์โหลดไฟล์ที่ได้รับสำเร็จ!
+                    </a>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- ค่าโครงสร้างข้อมูลร่วม (Protocol Schema) ---
+        // รูปแบบข้อความใน QR: [INDEX]|[TOTAL]|[FILENAME]|[BASE64_CHUNK]
+
+        // --- ตัวแปรสำหรับฝั่งส่ง (Sender) ---
+        let sendInterval = null;
+        let chunks = [];
+        let currentChunkIndex = 0;
+        const qrcodeContainer = document.getElementById("qrcode");
+        const qrcode = new QRCode(qrcodeContainer, { width: 250, height: 250, correctLevel: QRCode.CorrectLevel.L });
+
+        // --- ตัวแปรสำหรับฝั่งรับ (Receiver) ---
+        let html5QrCode = null;
+        let receivedChunks = {};
+        let totalChunksExpected = 0;
+        let receivedFileName = "downloaded_file";
+
+        // ================= LOGIC: SENDER =================
+        document.getElementById('startSendBtn').addEventListener('click', () => {
+            const fileInput = document.getElementById('fileInput');
+            const speed = parseInt(document.getElementById('speedInput').value) || 300;
+            
+            if (!fileInput.files.length) {
+                alert('กรุณาเลือกไฟล์ก่อนครับ!');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                const base64Data = e.target.result.split(',')[1];
+                const chunkSize = 100; // กำหนดขนาดตัวอักษรต่อหนึ่ง QR เฟรม (ปรับลดลงเพื่อให้ QR ไม่แน่นเกินไป สแกนง่ายขึ้น)
+                chunks = [];
+                
+                for (let i = 0; i < base64Data.length; i += chunkSize) {
+                    chunks.push(base64Data.slice(i, i + chunkSize));
+                }
+
+                currentChunkIndex = 0;
+                document.getElementById('startSendBtn').classList.add('hidden');
+                document.getElementById('stopSendBtn').classList.remove('hidden');
+
+                // เริ่มลูปแสดงผล QR Code ต่อเนื่อง
+                sendInterval = setInterval(() => {
+                    if (chunks.length === 0) return;
+                    
+                    const payload = `${currentChunkIndex}|${chunks.length}|${file.name}|${chunks[currentChunkIndex]}`;
+                    qrcode.clear();
+                    qrcode.makeCode(payload);
+
+                    document.getElementById('sendProgress').innerText = `กำลังส่ง: เฟรม ${currentChunkIndex + 1} / ${chunks.length}`;
+                    
+                    currentChunkIndex = (currentChunkIndex + 1) % chunks.length; // วนลูปส่งเรื่อย ๆ จนกว่าจะกดหยุด
+                }, speed);
+            };
+
+            reader.readAsDataURL(file);
+        });
+
+        document.getElementById('stopSendBtn').addEventListener('click', stopSending);
+        function stopSending() {
+            clearInterval(sendInterval);
+            document.getElementById('startSendBtn').classList.remove('hidden');
+            document.getElementById('stopSendBtn').classList.add('hidden');
+            document.getElementById('sendProgress').innerText = "หยุดส่งข้อมูลแล้ว";
+        }
+
+        // ================= LOGIC: RECEIVER =================
+        document.getElementById('startScanBtn').addEventListener('click', () => {
+            receivedChunks = {};
+            totalChunksExpected = 0;
+            document.getElementById('downloadArea').classList.add('hidden');
+            document.getElementById('progressBar').style.width = '0%';
+            document.getElementById('chunksInfo').innerText = "กำลังรอรับเฟรมแรก...";
+
+            html5QrCode = new Html5Qrcode("reader");
+            
+            document.getElementById('startScanBtn').classList.add('hidden');
+            document.getElementById('stopScanBtn').classList.remove('hidden');
+            document.getElementById('scanStatus').innerText = "กำลังสแกน...";
+            document.getElementById('scanStatus').className = "text-emerald-400 font-bold animate-pulse";
+
+            html5QrCode.start(
+                { facingMode: "environment" }, 
+                { fps: 30, qrbox: { width: 250, height: 250 } },
+                (decodedText) => {
+                    // แกะโครงสร้างข้อมูลออปติคอล
+                    const parts = decodedText.split('|');
+                    if (parts.length < 4) return; // ข้อมูลไม่เข้าพวก ข้ามไป
+
+                    const index = parseInt(parts[0]);
+                    const total = parseInt(parts[1]);
+                    const filename = parts[2];
+                    const chunkData = parts[3];
+
+                    totalChunksExpected = total;
+                    receivedFileName = filename;
+
+                    // บันทึกเฉพาะเฟรมที่ยังไม่มี
+                    if (!receivedChunks[index]) {
+                        receivedChunks[index] = chunkData;
+                        
+                        // คำนวณความคืบหน้า
+                        const receivedCount = Object.keys(receivedChunks).length;
+                        const progressPercent = (receivedCount / totalChunksExpected) * 100;
+                        document.getElementById('progressBar').style.width = `${progressPercent}%`;
+                        document.getElementById('chunksInfo').innerText = `ได้รับเฟรมสำเร็จ: ${receivedCount} / ${totalChunksExpected}`;
+
+                        // เมื่อรับครบถ้วนทุกเฟรมแล้ว
+                        if (receivedCount === totalChunksExpected) {
+                            assembleAndDownloadFile();
+                        }
+                    }
+                },
+                (errorMessage) => { /* ปิดการแสดงผล Error Log ทั่วไปเพื่อไม่ให้ค้างเบราว์เซอร์ */ }
+            ).catch(err => {
+                alert("ไม่สามารถเปิดกล้องได้: " + err);
+                stopScanning();
+            });
+        });
+
+        document.getElementById('stopScanBtn').addEventListener('click', stopScanning);
+        function stopScanning() {
+            if (html5QrCode) {
+                html5QrCode.stop().then(() => {
+                    html5QrCode.clear();
+                    document.getElementById('startScanBtn').classList.remove('hidden');
+                    document.getElementById('stopScanBtn').classList.add('hidden');
+                    document.getElementById('scanStatus').innerText = "ปิดอยู่";
+                    document.getElementById('scanStatus').className = "text-rose-400 font-bold";
+                });
+            }
+        }
+
+        // ฟังก์ชันประกอบร่างชิ้นส่วนเฟรมกลับมาเป็นไฟล์
+        function assembleAndDownloadFile() {
+            stopScanning();
+            document.getElementById('scanStatus').innerText = "เสร็จสมบูรณ์ 🎉";
+            document.getElementById('scanStatus').className = "text-amber-400 font-bold";
+
+            // เรียงลำดับเฟรมให้ถูกต้องจาก 0 ถึง n
+            let fullBase64 = "";
+            for (let i = 0; i < totalChunksExpected; i++) {
+                fullBase64 += receivedChunks[i];
+            }
+
+            // แปลง Base64 กลับเป็น Binary Blob เพื่อให้ดาวน์โหลด
+            const byteCharacters = atob(fullBase64);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const fileBlob = new Blob([byteArray], { type: "application/octet-stream" });
+
+            // ผูกลิงก์ดาวน์โหลดเข้ากับปุ่ม UI
+            const downloadLink = document.getElementById('downloadLink');
+            downloadLink.href = URL.createObjectURL(fileBlob);
+            downloadLink.download = receivedFileName;
+            
+            document.getElementById('downloadArea').classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
