@@ -3,17 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Air-Gapped QR Data Transfer</title>
+    <title>Air-Gapped Optical Transfer (Canvas Version)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 font-sans min-h-screen p-6">
 
     <div class="max-w-5xl mx-auto">
         <header class="text-center mb-8">
-            <h1 class="text-3xl font-bold text-emerald-400 mb-2">🔄 Air-Gapped Optical Transfer</h1>
-            <p class="text-slate-400 text-sm">รับ-ส่งไฟล์ผ่านหน้าจอและกล้องโดยไม่ต้องต่อเน็ตเวิร์ก</p>
+            <h1 class="text-3xl font-bold text-emerald-400 mb-2">🔄 Canvas Optical Transfer</h1>
+            <p class="text-slate-400 text-sm">รับ-ส่งไฟล์ข้ามเครื่องผ่านระบบกล้องและ HTML5 Canvas</p>
         </header>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -24,23 +23,23 @@
                 </h2>
                 
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-slate-300 mb-2">เลือกไฟล์ที่ต้องการส่ง (แนะนำขนาด < 10 KB)</label>
+                    <label class="block text-sm font-medium text-slate-300 mb-2">เลือกไฟล์ (แนะนำไฟล์ขนาดเล็ก < 15 KB)</label>
                     <input type="file" id="fileInput" class="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-amber-500 file:text-slate-900 hover:file:bg-amber-400 cursor-pointer">
                 </div>
 
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-slate-300 mb-2">ความเร็วในการเปลี่ยนรูป (มิลลิวินาทีต่อเฟรม)</label>
-                    <input type="number" id="speedInput" value="300" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-center text-amber-400 font-mono">
+                    <label class="block text-sm font-medium text-slate-300 mb-2">หน่วงเวลาต่อเฟรม (มิลลิวินาที)</label>
+                    <input type="number" id="speedInput" value="250" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-center text-amber-400 font-mono">
                 </div>
 
                 <div class="flex gap-2 mb-6">
-                    <button id="startSendBtn" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 px-4 rounded-xl transition">เริ่มส่งข้อมูล</button>
-                    <button id="stopSendBtn" class="bg-rose-600 hover:bg-rose-500 text-white font-bold py-2.5 px-4 rounded-xl transition hidden">หยุด</button>
+                    <button id="startSendBtn" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 px-4 rounded-xl transition">เริ่มส่งด้วย Canvas</button>
+                    <button id="stopSendBtn" class="bg-rose-600 hover:bg-rose-500 text-white font-bold py-2.5 px-4 rounded-xl transition hidden">หยุดส่ง</button>
                 </div>
 
-                <div class="flex flex-col items-center justify-center bg-white p-6 rounded-xl min-h-[300px]">
-                    <div id="qrcode"></div>
-                    <div id="sendProgress" class="text-slate-900 font-mono text-sm mt-4 font-bold"></div>
+                <div class="flex flex-col items-center justify-center bg-white p-6 rounded-xl min-h-[320px]">
+                    <canvas id="qrCanvas" width="250" height="250" class="border border-slate-200"></canvas>
+                    <div id="sendProgress" class="text-slate-900 font-mono text-sm mt-4 font-bold">พร้อมส่งข้อมูล</div>
                 </div>
             </div>
 
@@ -50,7 +49,7 @@
                 </h2>
 
                 <div class="flex gap-2 mb-4">
-                    <button id="startScanBtn" class="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2.5 px-4 rounded-xl transition">เปิดกล้องรับข้อมูล</button>
+                    <button id="startScanBtn" class="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2.5 px-4 rounded-xl transition">เปิดกล้องสแกน</button>
                     <button id="stopScanBtn" class="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-bold py-2.5 px-4 rounded-xl transition hidden">ปิดกล้อง</button>
                 </div>
 
@@ -60,20 +59,20 @@
 
                 <div class="bg-slate-900 p-4 rounded-xl border border-slate-700 font-mono text-sm">
                     <div class="flex justify-between mb-2">
-                        <span>สถานะ:</span>
+                        <span>สถานะระบบ:</span>
                         <span id="scanStatus" class="text-rose-400 font-bold">ปิดอยู่</span>
                     </div>
                     <div class="w-full bg-slate-700 rounded-full h-2.5 mb-4">
                         <div id="progressBar" class="bg-cyan-500 h-2.5 rounded-full" style="width: 0%"></div>
                     </div>
                     <div id="chunksInfo" class="text-slate-400 text-xs break-all max-h-[100px] overflow-y-auto">
-                        ยังไม่มีข้อมูลเปิดรับ...
+                        รอรับบิตข้อมูลการสแกน...
                     </div>
                 </div>
 
                 <div id="downloadArea" class="mt-4 hidden">
                     <a id="downloadLink" class="block text-center bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3 px-4 rounded-xl transition shadow-lg">
-                        💾 ดาวน์โหลดไฟล์ที่ได้รับสำเร็จ!
+                        💾 ดาวน์โหลดไฟล์ที่ประกอบเสร็จแล้ว
                     </a>
                 </div>
             </div>
@@ -81,30 +80,35 @@
         </div>
     </div>
 
-    <script>
-        // --- ค่าโครงสร้างข้อมูลร่วม (Protocol Schema) ---
-        // รูปแบบข้อความใน QR: [INDEX]|[TOTAL]|[FILENAME]|[BASE64_CHUNK]
+    <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
 
-        // --- ตัวแปรสำหรับฝั่งส่ง (Sender) ---
+    <script>
+        // --- ค่าควบคุมฝั่งส่ง (Sender) ---
         let sendInterval = null;
         let chunks = [];
         let currentChunkIndex = 0;
-        const qrcodeContainer = document.getElementById("qrcode");
-        const qrcode = new QRCode(qrcodeContainer, { width: 250, height: 250, correctLevel: QRCode.CorrectLevel.L });
+        
+        // อ้างอิง HTML5 Canvas Context
+        const canvas = document.getElementById('qrCanvas');
+        const qr = new QRious({
+            element: canvas,
+            size: 250,
+            level: 'L' // ใช้ Low Error Correction เพื่อลดความหนาแน่น เพิ่มความเร็วในการถอดรหัสผ่านกล้อง
+        });
 
-        // --- ตัวแปรสำหรับฝั่งรับ (Receiver) ---
+        // --- ค่าควบคุมฝั่งรับ (Receiver) ---
         let html5QrCode = null;
         let receivedChunks = {};
         let totalChunksExpected = 0;
-        let receivedFileName = "downloaded_file";
+        let receivedFileName = "file_transfer";
 
-        // ================= LOGIC: SENDER =================
+        // ================= SENDER LOGIC (Canvas Control) =================
         document.getElementById('startSendBtn').addEventListener('click', () => {
             const fileInput = document.getElementById('fileInput');
-            const speed = parseInt(document.getElementById('speedInput').value) || 300;
+            const speed = parseInt(document.getElementById('speedInput').value) || 250;
             
             if (!fileInput.files.length) {
-                alert('กรุณาเลือกไฟล์ก่อนครับ!');
+                alert('กรุณาเลือกไฟล์ที่จะนำมาสตรีมข้อมูลก่อนครับ!');
                 return;
             }
 
@@ -113,7 +117,7 @@
 
             reader.onload = function(e) {
                 const base64Data = e.target.result.split(',')[1];
-                const chunkSize = 100; // กำหนดขนาดตัวอักษรต่อหนึ่ง QR เฟรม (ปรับลดลงเพื่อให้ QR ไม่แน่นเกินไป สแกนง่ายขึ้น)
+                const chunkSize = 150; // หั่นชิ้นข้อมูลเฟรมละ 150 ตัวอักษร
                 chunks = [];
                 
                 for (let i = 0; i < base64Data.length; i += chunkSize) {
@@ -124,17 +128,20 @@
                 document.getElementById('startSendBtn').classList.add('hidden');
                 document.getElementById('stopSendBtn').classList.remove('hidden');
 
-                // เริ่มลูปแสดงผล QR Code ต่อเนื่อง
+                // ลูปวาดข้อมูล QR Code ลงบน Canvas แบบต่อเนื่องตามเวลาที่กำหนด
                 sendInterval = setInterval(() => {
                     if (chunks.length === 0) return;
                     
+                    // โปรโตคอล: ดัชนีเฟรม | เฟรมทั้งหมด | ชื่อไฟล์ | ข้อมูลฐาน64
                     const payload = `${currentChunkIndex}|${chunks.length}|${file.name}|${chunks[currentChunkIndex]}`;
-                    qrcode.clear();
-                    qrcode.makeCode(payload);
-
-                    document.getElementById('sendProgress').innerText = `กำลังส่ง: เฟรม ${currentChunkIndex + 1} / ${chunks.length}`;
                     
-                    currentChunkIndex = (currentChunkIndex + 1) % chunks.length; // วนลูปส่งเรื่อย ๆ จนกว่าจะกดหยุด
+                    // สั่งให้ Canvas วาดบิตแมปของรหัส QR ใหม่ทันที
+                    qr.value = payload;
+
+                    document.getElementById('sendProgress').innerText = `กำลังส่ง: เฟรมที่ ${currentChunkIndex + 1} / ${chunks.length}`;
+                    
+                    // วนลูปสตรีมเฟรมสลับกันไปเรื่อยๆ เพื่อให้ฝั่งรับเก็บตกเฟรมที่หลุดได้
+                    currentChunkIndex = (currentChunkIndex + 1) % chunks.length;
                 }, speed);
             };
 
@@ -142,35 +149,39 @@
         });
 
         document.getElementById('stopSendBtn').addEventListener('click', stopSending);
+        
         function stopSending() {
             clearInterval(sendInterval);
             document.getElementById('startSendBtn').classList.remove('hidden');
             document.getElementById('stopSendBtn').classList.add('hidden');
-            document.getElementById('sendProgress').innerText = "หยุดส่งข้อมูลแล้ว";
+            document.getElementById('sendProgress').innerText = "หยุดการสตรีมข้อมูลแล้ว";
+            
+            // ล้างหน้าจอ Canvas ให้โล่ง
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
 
-        // ================= LOGIC: RECEIVER =================
+        // ================= RECEIVER LOGIC =================
         document.getElementById('startScanBtn').addEventListener('click', () => {
             receivedChunks = {};
             totalChunksExpected = 0;
             document.getElementById('downloadArea').classList.add('hidden');
             document.getElementById('progressBar').style.width = '0%';
-            document.getElementById('chunksInfo').innerText = "กำลังรอรับเฟรมแรก...";
+            document.getElementById('chunksInfo').innerText = "กำลังมองหา Canvas สตรีมมิ่ง...";
 
             html5QrCode = new Html5Qrcode("reader");
             
             document.getElementById('startScanBtn').classList.add('hidden');
             document.getElementById('stopScanBtn').classList.remove('hidden');
-            document.getElementById('scanStatus').innerText = "กำลังสแกน...";
+            document.getElementById('scanStatus').innerText = "กำลังจับภาพไฟล์...";
             document.getElementById('scanStatus').className = "text-emerald-400 font-bold animate-pulse";
 
             html5QrCode.start(
                 { facingMode: "environment" }, 
-                { fps: 30, qrbox: { width: 250, height: 250 } },
+                { fps: 60, qrbox: { width: 250, height: 250 } }, // ปรับเพิ่ม fps เพื่อดักจับ Canvas ความเร็วสูง
                 (decodedText) => {
-                    // แกะโครงสร้างข้อมูลออปติคอล
                     const parts = decodedText.split('|');
-                    if (parts.length < 4) return; // ข้อมูลไม่เข้าพวก ข้ามไป
+                    if (parts.length < 4) return; // ข้อมูลไม่สมบูรณ์ให้ข้ามเฟรมนี้ไป
 
                     const index = parseInt(parts[0]);
                     const total = parseInt(parts[1]);
@@ -180,30 +191,30 @@
                     totalChunksExpected = total;
                     receivedFileName = filename;
 
-                    // บันทึกเฉพาะเฟรมที่ยังไม่มี
+                    // บันทึกเฟรมที่สแกนเจอเข้าไปใน Object Array
                     if (!receivedChunks[index]) {
                         receivedChunks[index] = chunkData;
                         
-                        // คำนวณความคืบหน้า
                         const receivedCount = Object.keys(receivedChunks).length;
                         const progressPercent = (receivedCount / totalChunksExpected) * 100;
                         document.getElementById('progressBar').style.width = `${progressPercent}%`;
-                        document.getElementById('chunksInfo').innerText = `ได้รับเฟรมสำเร็จ: ${receivedCount} / ${totalChunksExpected}`;
+                        document.getElementById('chunksInfo').innerText = `คืบหน้า: ได้รับแล้ว ${receivedCount} จากทั้งหมด ${totalChunksExpected} เฟรม`;
 
-                        // เมื่อรับครบถ้วนทุกเฟรมแล้ว
+                        // ถ้ารับองค์ประกอบบิตเฟรมครบถ้วนตามสเปก
                         if (receivedCount === totalChunksExpected) {
                             assembleAndDownloadFile();
                         }
                     }
                 },
-                (errorMessage) => { /* ปิดการแสดงผล Error Log ทั่วไปเพื่อไม่ให้ค้างเบราว์เซอร์ */ }
+                (errorMessage) => { /* ปิดดีบั๊กเออเรอร์เฟรมหลุดเพื่อการประมวลผลที่ลื่นไหล */ }
             ).catch(err => {
-                alert("ไม่สามารถเปิดกล้องได้: " + err);
+                alert("ไม่สามารถเข้าถึงสิทธิ์การใช้งานกล้องได้: " + err);
                 stopScanning();
             });
         });
 
         document.getElementById('stopScanBtn').addEventListener('click', stopScanning);
+        
         function stopScanning() {
             if (html5QrCode) {
                 html5QrCode.stop().then(() => {
@@ -216,19 +227,18 @@
             }
         }
 
-        // ฟังก์ชันประกอบร่างชิ้นส่วนเฟรมกลับมาเป็นไฟล์
+        // ฟังก์ชันประกอบบิตแมปและโครงสร้างข้อมูลจากชิ้นส่วน Canvas กลับเป็นไฟล์ต้นฉบับ
         function assembleAndDownloadFile() {
             stopScanning();
-            document.getElementById('scanStatus').innerText = "เสร็จสมบูรณ์ 🎉";
+            document.getElementById('scanStatus').innerText = "รับข้อมูลสำเร็จ 100% 🎉";
             document.getElementById('scanStatus').className = "text-amber-400 font-bold";
 
-            // เรียงลำดับเฟรมให้ถูกต้องจาก 0 ถึง n
             let fullBase64 = "";
             for (let i = 0; i < totalChunksExpected; i++) {
                 fullBase64 += receivedChunks[i];
             }
 
-            // แปลง Base64 กลับเป็น Binary Blob เพื่อให้ดาวน์โหลด
+            // แปลงค่า Base64 กลับเป็นระบบไฟล์ไบนารีดั้งเดิม
             const byteCharacters = atob(fullBase64);
             const byteNumbers = new Array(byteCharacters.length);
             for (let i = 0; i < byteCharacters.length; i++) {
@@ -237,7 +247,7 @@
             const byteArray = new Uint8Array(byteNumbers);
             const fileBlob = new Blob([byteArray], { type: "application/octet-stream" });
 
-            // ผูกลิงก์ดาวน์โหลดเข้ากับปุ่ม UI
+            // สร้าง Object URL สำหรับดาวน์โหลดไฟล์ออกสู่เครื่องฝั่งรับ
             const downloadLink = document.getElementById('downloadLink');
             downloadLink.href = URL.createObjectURL(fileBlob);
             downloadLink.download = receivedFileName;
