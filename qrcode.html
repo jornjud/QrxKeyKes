@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Air-Gapped Optical Transfer (Canvas Version)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 font-sans min-h-screen p-6">
 
@@ -23,7 +23,7 @@
                 </h2>
                 
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-slate-300 mb-2">เลือกไฟล์ (แนะนำไฟล์ขนาดเล็ก < 15 KB)</label>
+                    <label class="block text-sm font-medium text-slate-300 mb-2">เลือกไฟล์ (max 30 KB, แนะนำ &lt; 15 KB)</label>
                     <input type="file" id="fileInput" class="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-amber-500 file:text-slate-900 hover:file:bg-amber-400 cursor-pointer">
                 </div>
 
@@ -93,7 +93,7 @@
         const qr = new QRious({
             element: canvas,
             size: 250,
-            level: 'L' // ใช้ Low Error Correction เพื่อลดความหนาแน่น เพิ่มความเร็วในการถอดรหัสผ่านกล้อง
+            level: 'M' // Error Correction Medium — resilient กว่า L ในสภาพแสงน้อย/handheld
         });
 
         // --- ค่าควบคุมฝั่งรับ (Receiver) ---
@@ -101,6 +101,28 @@
         let receivedChunks = {};
         let totalChunksExpected = 0;
         let receivedFileName = "file_transfer";
+        let currentSeq = -1; // sync sequence number
+
+        // --- CRC32 Checksum for data integrity ---
+        function crc32(data) {
+            let crc = 0xffffffff;
+            const table = new Uint32Array(256);
+            for (let i = 0; i < 256; i++) {
+                let c = i;
+                for (let j = 0; j < 8; j++) {
+                    c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+                }
+                table[i] = c;
+            }
+            for (let i = 0; i < data.length; i++) {
+                crc = table[(crc ^ data.charCodeAt(i)) & 0xff] ^ (crc >>> 8);
+            }
+            return (crc ^ 0xffffffff) >>> 0;
+        }
+
+        // --- Sequence number สำหรับ sync/resync ---
+        let sequenceId = 0;
+        function nextSequence() { return ++sequenceId; }
 
         // ================= SENDER LOGIC (Canvas Control) =================
         document.getElementById('startSendBtn').addEventListener('click', () => {
@@ -113,11 +135,16 @@
             }
 
             const file = fileInput.files[0];
+            const MAX_SIZE = 30 * 1024; // 30 KB limit
+            if (file.size > MAX_SIZE) {
+                alert('ไฟล์ใหญ่เกิน 30 KB! กรุณาเลือกไฟล์ที่เล็กกว่านี้ (แนะนำ < 15 KB)');
+                return;
+            }
             const reader = new FileReader();
 
             reader.onload = function(e) {
                 const base64Data = e.target.result.split(',')[1];
-                const chunkSize = 150; // หั่นชิ้นข้อมูลเฟรมละ 150 ตัวอักษร
+                const chunkSize = 500; // หั่นชิ้นข้อมูลเฟรมละ 500 ตัวอักษร (QR capacity ~1660 bytes ที่ Level M)
                 chunks = [];
                 
                 for (let i = 0; i < base64Data.length; i += chunkSize) {
@@ -132,8 +159,10 @@
                 sendInterval = setInterval(() => {
                     if (chunks.length === 0) return;
                     
-                    // โปรโตคอล: ดัชนีเฟรม | เฟรมทั้งหมด | ชื่อไฟล์ | ข้อมูลฐาน64
-                    const payload = `${currentChunkIndex}|${chunks.length}|${file.name}|${chunks[currentChunkIndex]}`;
+                    // โปรโตคอล: SEQ | ดัชนีเฟรม | เฟรมทั้งหมด | ชื่อไฟล์ | CRC32 | ข้อมูลฐาน64
+                    const safeName = file.name.replace(/\|/g, '_');
+                    const chunkCrc = crc32(chunks[currentChunkIndex]);
+                    const payload = `${nextSequence()}|${currentChunkIndex}|${chunks.length}|${safeName}|${chunkCrc}|${chunks[currentChunkIndex]}`;
                     
                     // สั่งให้ Canvas วาดบิตแมปของรหัส QR ใหม่ทันที
                     qr.value = payload;
@@ -181,17 +210,33 @@
                 { fps: 60, qrbox: { width: 250, height: 250 } }, // ปรับเพิ่ม fps เพื่อดักจับ Canvas ความเร็วสูง
                 (decodedText) => {
                     const parts = decodedText.split('|');
-                    if (parts.length < 4) return; // ข้อมูลไม่สมบูรณ์ให้ข้ามเฟรมนี้ไป
+                    if (parts.length < 6) return; // ข้อมูลไม่สมบูรณ์ให้ข้ามเฟรมนี้ไป
 
-                    const index = parseInt(parts[0]);
-                    const total = parseInt(parts[1]);
-                    const filename = parts[2];
-                    const chunkData = parts[3];
+                    const seq = parseInt(parts[0]);
+                    const index = parseInt(parts[1]);
+                    const total = parseInt(parts[2]);
+                    const filename = parts[3];
+                    const chunkCrc = parseInt(parts[4]);
+                    const chunkData = parts[5];
+
+                    // Sync check: ถ้า sequence ใหม่ → reset buffer (เริ่มส่งใหม่)
+                    if (seq !== currentSeq) {
+                        currentSeq = seq;
+                        receivedChunks = {};
+                        totalChunksExpected = 0;
+                        document.getElementById('progressBar').style.width = '0%';
+                    }
+
+                    // CRC integrity check — ถ้าไม่ตรง → skip เฟรมนี้
+                    if (crc32(chunkData) !== chunkCrc) {
+                        document.getElementById('chunksInfo').innerText = `⚠️ เฟรม ${index} เสียหาย (CRC fail) — ข้าม...`;
+                        return;
+                    }
 
                     totalChunksExpected = total;
                     receivedFileName = filename;
 
-                    // บันทึกเฟรมที่สแกนเจอเข้าไปใน Object Array
+                    // บันทึกเฟรมที่สแกนเจอเข้าไปใน Object Array (เฉพาะยังไม่มี)
                     if (!receivedChunks[index]) {
                         receivedChunks[index] = chunkData;
                         
